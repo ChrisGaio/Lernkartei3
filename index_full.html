@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Karteikarten – Lernapp (Swiss Treuhand)</title>
+  <meta name="description" content="Interaktive Lernkarten (Leitner) mit Themenliste, Farbcodes, PDF/CSV/TXT/JSON-Import.">
+  <style>
+    :root{
+      --bg1:#0f0c29;
+      --bg2:#302b63;
+      --bg3:#24243e;
+      --accent:#7c4dff;
+      --accent2:#00c2ff;
+      --text:#e8eaf6;
+      --muted:#b0b7c3;
+      --ok:#2ecc71;
+      --again:#ff6b6b;
+      --warn:#ffb703;
+      --card:#141528;
+      --cardEdge:#2a2d4a;
+      --shadow: 0 12px 30px rgba(0,0,0,.35);
+      --radius:16px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color:var(--text);
+      background: radial-gradient(1200px 800px at 20% -10%, var(--bg2), transparent 60%),
+                  radial-gradient(1000px 800px at 110% 10%, var(--bg3), transparent 60%),
+                  linear-gradient(160deg,var(--bg1),var(--bg3));
+    }
+    header{
+      display:flex; align-items:center; gap:12px;
+      padding:14px 18px; position:sticky; top:0; z-index:7;
+      background: linear-gradient(160deg, rgba(15,12,41,.85), rgba(36,36,62,.85));
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    header h1{font-size:18px; margin:0; letter-spacing:.3px; font-weight:650}
+    header .spacer{flex:1}
+    header .badge{
+      font-size:12px; padding:6px 10px; border-radius:999px;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      color:white; box-shadow: var(--shadow);
+    }
+    main{padding:16px; display:grid; gap:14px; max-width:1100px; margin:0 auto}
+    .toc{
+      position:sticky; top:54px; z-index:6;
+      display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.08);
+      padding:8px; border-radius:12px;
+    }
+    .chip{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.12);
+      font-size:12px; cursor:pointer; transition: transform .05s ease;
+    }
+    .chip:hover{ transform: translateY(-1px) }
+    .chip .dot{
+      width:10px; height:10px; border-radius:50%;
+      background:#8e8cd8; border:1px solid rgba(255,255,255,.7);
+    }
+    .chip.active{ outline:2px solid rgba(255,255,255,.22) }
+    .chip .rename{ opacity:.8; font-size:11px; border:1px dashed rgba(255,255,255,.25); padding:2px 6px; border-radius:8px }
+    .toolbar{
+      display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+      background: rgba(255,255,255,.04);
+      padding:10px; border:1px solid rgba(255,255,255,.06); border-radius:12px;
+    }
+    select,button,input[type="file"]::file-selector-button{
+      background:rgba(255,255,255,.08);
+      color:var(--text);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:10px; padding:10px 12px; font-size:14px;
+    }
+    button{ cursor:pointer; transition: transform .05s ease, background .2s ease; }
+    button:hover{transform: translateY(-1px)}
+    button.primary{
+      background:linear-gradient(120deg,var(--accent),var(--accent2));
+      border:none; color:white; font-weight:600;
+    }
+    button.ghost{background:transparent; border:1px dashed rgba(255,255,255,.20)}
+    button.warn{background: rgba(255,183,3,.15); border-color: rgba(255,183,3,.4); color:#ffd87a}
+    .board{ display:grid; grid-template-columns: 1fr; gap:14px; }
+    @media (min-width: 900px){
+      .board{grid-template-columns: 1.2fr .8fr}
+    }
+    .cardwrap{ perspective: 1200px; min-height: 360px; }
+    .card{
+      width:100%; min-height:360px; border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border: 1px solid var(--cardEdge);
+      box-shadow: var(--shadow);
+      position:relative; transform-style:preserve-3d;
+      transition: transform .6s cubic-bezier(.22,.61,.36,1);
+      user-select:none;
+    }
+    .card.flipped{ transform: rotateY(180deg) }
+    .cardface{
+      position:absolute; inset:0; padding:22px; display:flex; flex-direction:column; gap:14px; justify-content:center; align-items:center;
+      backface-visibility: hidden; -webkit-backface-visibility:hidden;
+    }
+    .cardface h2{ margin:0 0 8px 0; font-size:22px; text-align:center }
+    .cardface p{ margin:0; font-size:16px; opacity:.95; text-align:center; line-height:1.5 }
+    .card .back{ transform: rotateY(180deg) }
+    .hint{font-size:12px; color:var(--muted)}
+    .big{ font-size: clamp(18px, 2.6vw, 22px); font-weight:600; }
+    .actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+    .actions button{padding:12px 16px; border-radius:12px; border:1px solid rgba(255,255,255,.12)}
+    .actions .ok{background: rgba(46,204,113,.15); border-color: rgba(46,204,113,.4); color:#bdf3cd; font-weight:600}
+    .actions .again{background: rgba(255,107,107,.15); border-color: rgba(255,107,107,.4); color:#ffd0d0; font-weight:600}
+    .panel{
+      background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08);
+      border-radius: 14px; padding:14px; display:grid; gap:12px;
+    }
+    .panel h3{margin:0; font-size:16px}
+    .grid2{display:grid; grid-template-columns:1fr; gap:10px}
+    @media (min-width: 640px){ .grid2{ grid-template-columns: 1fr 1fr } }
+    textarea, input[type="text"]{
+      width:100%; padding:10px 12px; border-radius:10px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.25); color:var(--text); font-size:14px;
+    }
+    .small{font-size:12px; color:var(--muted)}
+    .pill{
+      display:inline-flex; align-items:center; gap:8px;
+      background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+      padding:8px 10px; border-radius:999px; font-size:12px;
+    }
+    .kpi{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    .kpi .pill b{font-variant-numeric: tabular-nums}
+    .footer{ font-size:12px; color:var(--muted); text-align:center; padding:8px; }
+    .hidden{display:none !important}
+    .danger{color:#ffb4b4}
+    .accent{color:#d1c4ff}
+    .linklike{ text-decoration: underline; cursor:pointer }
+    .sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0 }
+    .colorbox{ display:grid; grid-auto-flow:column; gap:6px; align-items:center }
+    .swatch{ width:18px; height:18px; border-radius:50%; border:1px solid rgba(255,255,255,.7); cursor:pointer }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Karteikarten • Treuhand</h1>
+    <span class="badge">Violett–Blau</span>
+    <div class="spacer"></div>
+    <button class="ghost" id="exportDeckBtn" title="Deck exportieren">Export</button>
+  </header>
+
+  <main>
+    <nav class="toc" aria-label="Themenliste" id="toc"></nav>
+
+    <div class="toolbar" role="region" aria-label="Werkzeuge">
+      <label for="deckSelect">Deck:</label>
+      <select id="deckSelect"></select>
+      <button id="newDeckBtn">Neues Deck</button>
+      <button id="deleteDeckBtn" class="warn">Deck löschen</button>
+      <input type="file" id="importFile" accept=".json,.csv,.txt,.md,.pdf" />
+      <button id="importBtn" class="primary">Importieren</button>
+      <button id="shuffleBtn">Mischen</button>
+      <button id="resetProgressBtn">Fortschritt zurücksetzen</button>
+      <span class="pill" id="deckMetaPill">Farbe: <span id="deckColorName">—</span></span>
+      <div class="colorbox" id="colorBox" title="Deck-Farbe setzen"></div>
+    </div>
+
+    <div class="board">
+      <section class="cardwrap" aria-live="polite">
+        <div class="card" id="card">
+          <div class="cardface front">
+            <div class="pill">Frage</div>
+            <h2 id="qText">Keine Karten im Deck.</h2>
+            <p class="hint">Tippe auf die Karte, um zu drehen. Oder nutze die Tasten unten.</p>
+            <div class="actions">
+              <button id="revealBtn" class="primary">Antwort zeigen</button>
+            </div>
+          </div>
+          <div class="cardface back">
+            <div class="pill">Antwort</div>
+            <p id="aText" class="big">—</p>
+            <div class="grid2" style="width:100%; max-width:680px">
+              <input type="text" id="selfAnswer" placeholder="Deine Antwort (optional)"/>
+              <button id="checkBtn">Prüfen</button>
+            </div>
+            <div id="checkMsg" class="small"></div>
+            <div class="actions">
+              <button class="again" id="againBtn">Nochmal</button>
+              <button class="ok" id="okBtn">Sitzts!</button>
+              <button id="editCardBtn">Karte bearbeiten</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel" aria-label="Karten & Import">
+        <h3>Inhalt hinzufügen</h3>
+        <div class="grid2">
+          <textarea id="qInput" rows="3" placeholder="Frage… (z. B. DBG: Art. 36 Abs. 2 – Wortlaut?)"></textarea>
+          <textarea id="aInput" rows="3" placeholder="Antwort… (vollständig zitieren, Beispiele erlaubt)"></textarea>
+        </div>
+        <div class="actions">
+          <button id="addCardBtn" class="primary">Karte hinzufügen</button>
+          <button id="clearInputsBtn">Eingaben leeren</button>
+        </div>
+        <div class="small">
+          Import-Formate:
+          <ul>
+            <li><b>CSV</b> mit Spalten <code>question,answer</code></li>
+            <li><b>TXT/MD</b> Paare mit <code>Frage::Antwort</code> oder Blöcke mit <code>Frage:</code> / <code>Antwort:</code></li>
+            <li><b>PDF</b> (Text wird extrahiert; anschließend Regel „<code>Frage::Antwort</code>“ empfohlen)</li>
+            <li><b>JSON</b> App-Export</li>
+          </ul>
+        </div>
+        <div class="kpi">
+          <span class="pill">Karten: <b id="kpiTotal">0</b></span>
+          <span class="pill">Heute fällig: <b id="kpiDue">0</b></span>
+          <span class="pill">Box 1: <b id="kpiB1">0</b></span>
+          <span class="pill">Box 2: <b id="kpiB2">0</b></span>
+          <span class="pill">Box 3+: <b id="kpiB3">0</b></span>
+        </div>
+      </aside>
+    </div>
+
+    <p class="footer">
+      Tip: Tippe/Click auf die Karte zum Drehen • Leertaste = zeigen • Pfeile links/rechts = vorher/nächste • 1 = Nochmal • 2 = Sitzts!
+    </p>
+  </main>
+
+  <script src="https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.min.js"></script>
+  <script>
+    const LS_KEY = "treuhand_cards_v2";
+    const DEFAULT_DECK = "Mein erstes Deck";
+    const PALETTE = [
+      {name:"Violett", color:"#9b5de5"},
+      {name:"Blau", color:"#00bbf9"},
+      {name:"Türkis", color:"#00f5d4"},
+      {name:"Pink", color:"#f15bb5"},
+      {name:"Orange", color:"#f8961e"},
+      {name:"Grün", color:"#2ecc71"},
+      {name:"Gelb", color:"#ffd166"},
+      {name:"Graublau", color:"#8e9aaf"}
+    ];
+    let state = loadState();
+    if(!state.decks || Object.keys(state.decks).length===0){
+      state.decks = {[DEFAULT_DECK]: {cards: sampleCards(), created: Date.now(), color: PALETTE[0].color}};
+      state.current = DEFAULT_DECK;
+      saveState();
+    }
+    function loadState(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)) || {decks:{}, current:null}; } catch(e){ return {decks:{}, current:null}; } }
+    function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+    function uuid(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
+    function today(){ const d=new Date(); d.setHours(0,0,0,0); return d.getTime(); }
+    function days(n){ return 24*3600*1000*n; }
+    function sampleCards(){
+      return [
+        mkCard("DBG: Art. 36 Abs. 2 – Progression?", "Art. 36 Abs. 2 DBG: «Die Steuer wird nach einem progressiven Tarif erhoben.» Beispiel: steigend mit Einkommen. (Beachte kantonale Tarife im StHG)."),
+        mkCard("MWSTG: Steuersatz Norm?", "Normalsatz aktuell 8.1 % (seit 01.01.2024). Reduziert 2.6 %, Sondersatz Beherbergung 3.8 %. Bundessteuer, keine kantonalen Abweichungen."),
+        mkCard("OR: Formvorschrift einfacher Auftrag?", "OR 394 ff.: Kein Formerfordernis; stillschweigende Annahme möglich. Pflichten: sorgfältige Ausführung, Rechenschaft, Herausgabe.")
+      ];
+    }
+    function mkCard(q,a){ return { id: uuid(), q: q.trim(), a: a.trim(), box: 1, next: today(), created: Date.now(), history: [] }; }
+    function currentDeck(){ return state.decks[state.current]; }
+    const deckSelect = document.getElementById('deckSelect');
+    const newDeckBtn = document.getElementById('newDeckBtn');
+    const deleteDeckBtn = document.getElementById('deleteDeckBtn');
+    const exportBtn = document.getElementById('exportDeckBtn');
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const resetProgressBtn = document.getElementById('resetProgressBtn');
+    const toc = document.getElementById('toc');
+    const colorBox = document.getElementById('colorBox');
+    const deckColorName = document.getElementById('deckColorName');
+    const cardEl = document.getElementById('card');
+    const qText = document.getElementById('qText');
+    const aText = document.getElementById('aText');
+    const selfAnswer = document.getElementById('selfAnswer');
+    const checkBtn = document.getElementById('checkBtn');
+    const checkMsg = document.getElementById('checkMsg');
+    const revealBtn = document.getElementById('revealBtn');
+    const againBtn = document.getElementById('againBtn');
+    const okBtn = document.getElementById('okBtn');
+    const editCardBtn = document.getElementById('editCardBtn');
+    const qInput = document.getElementById('qInput');
+    const aInput = document.getElementById('aInput');
+    const addCardBtn = document.getElementById('addCardBtn');
+    const clearInputsBtn = document.getElementById('clearInputsBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importFile = document.getElementById('importFile');
+    function refreshTOC(){
+      toc.innerHTML = "";
+      Object.keys(state.decks).forEach(name=>{
+        const d = state.decks[name];
+        const chip = document.createElement('div');
+        chip.className = "chip"+(name===state.current?" active":"");
+        chip.title = name;
+        chip.addEventListener('click', ()=>{ state.current = name; saveState(); refreshAll(); });
+        const dot = document.createElement('span');
+        dot.className = "dot";
+        dot.style.background = d.color || "#8e8cd8";
+        const label = document.createElement('span');
+        label.textContent = name;
+        const renameBtn = document.createElement('span');
+        renameBtn.className = "rename";
+        renameBtn.textContent = "…";
+        renameBtn.title = "Umbenennen";
+        renameBtn.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          const nn = prompt("Neuer Name für Deck:", name);
+          if(nn && !state.decks[nn]){
+            state.decks[nn] = d;
+            delete state.decks[name];
+            state.current = nn;
+            saveState(); refreshAll();
+          }else if(nn){
+            alert("Name bereits vorhanden.");
+          }
+        });
+        chip.appendChild(dot);
+        chip.appendChild(label);
+        chip.appendChild(renameBtn);
+        toc.appendChild(chip);
+      });
+    }
+    function refreshPalette(){
+      colorBox.innerHTML = "";
+      const d=currentDeck(); if(!d) return;
+      const PALETTE = [
+        {name:"Violett", color:"#9b5de5"},
+        {name:"Blau", color:"#00bbf9"},
+        {name:"Türkis", color:"#00f5d4"},
+        {name:"Pink", color:"#f15bb5"},
+        {name:"Orange", color:"#f8961e"},
+        {name:"Grün", color:"#2ecc71"},
+        {name:"Gelb", color:"#ffd166"},
+        {name:"Graublau", color:"#8e9aaf"}
+      ];
+      PALETTE.forEach(p=>{
+        const s=document.createElement('div');
+        s.className="swatch";
+        s.style.width="18px"; s.style.height="18px"; s.style.borderRadius="50%";
+        s.style.border="1px solid rgba(255,255,255,.7)";
+        s.style.background = p.color;
+        s.title = p.name;
+        s.addEventListener('click', ()=>{ d.color = p.color; saveState(); refreshAll(); });
+        colorBox.appendChild(s);
+      });
+      const current = PALETTE.find(p=>p.color===(d.color||""));
+      if(deckColorName) deckColorName.textContent = current ? current.name : "individuell";
+    }
+    function refreshDeckSelect(){
+      deckSelect.innerHTML = "";
+      Object.keys(state.decks).forEach(name=>{
+        const opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        if(name===state.current) opt.selected = true;
+        deckSelect.appendChild(opt);
+      });
+    }
+    deckSelect.addEventListener('change', ()=>{ state.current = deckSelect.value; saveState(); startSession(); });
+    newDeckBtn.addEventListener('click', ()=>{
+      const name = prompt("Neuer Deckname:", "Treuhand Deck "+(Object.keys(state.decks).length+1));
+      if(!name) return;
+      if(state.decks[name]) return alert("Name existiert bereits.");
+      const color = "#9b5de5";
+      state.decks[name] = {cards:[], created: Date.now(), color};
+      state.current = name; saveState(); refreshAll();
+    });
+    deleteDeckBtn.addEventListener('click', ()=>{
+      if(!state.current) return;
+      if(!confirm("Deck „"+state.current+"“ wirklich löschen?")) return;
+      delete state.decks[state.current];
+      state.current = Object.keys(state.decks)[0] || null;
+      saveState(); refreshAll();
+    });
+    exportBtn.addEventListener('click', ()=>{
+      const data = JSON.stringify(state.decks[state.current], null, 2);
+      download(data, (state.current||"deck")+"_export.json", "application/json");
+    });
+    shuffleBtn.addEventListener('click', ()=>{
+      const d=currentDeck(); if(!d) return;
+      d.cards.sort(()=>Math.random()-.5);
+      saveState(); startSession();
+    });
+    resetProgressBtn.addEventListener('click', ()=>{
+      const d=currentDeck(); if(!d) return;
+      if(!confirm("Alle Leitner-Boxen & Fälligkeiten zurücksetzen?")) return;
+      d.cards.forEach(c=>{ c.box=1; c.next=today(); c.history=[]; });
+      saveState(); startSession();
+    });
+    let queue = []; let idx = 0;
+    function buildQueue(){
+      const d = currentDeck(); if(!d) return [];
+      const now = today();
+      const due = d.cards.filter(c=>c.next<=now);
+      const later = d.cards.filter(c=>c.next>now).sort((a,b)=>a.next-b.next);
+      return [...due, ...later];
+    }
+    function startSession(){ refreshDeckSelect(); refreshTOC(); refreshPalette(); queue = buildQueue(); idx = 0; renderKPI(); showCard(); tintCard(); }
+    function tintCard(){
+      const d=currentDeck(); if(!d) return;
+      cardEl.style.borderColor = "rgba(255,255,255,.15)";
+      cardEl.style.boxShadow = "0 12px 30px rgba(0,0,0,.35), 0 0 0 2px "+(d.color||"#8e8cd8");
+    }
+    function showCard(){
+      if(selfAnswer) selfAnswer.value="";
+      if(checkMsg) checkMsg.textContent="";
+      if(queue.length===0){ qText.textContent="Keine Karten im Deck."; aText.textContent="—"; cardEl.classList.remove('flipped'); return; }
+      const c = queue[idx] || queue[queue.length-1];
+      qText.textContent = c.q;
+      aText.textContent = c.a;
+      cardEl.classList.remove('flipped');
+      if(selfAnswer) selfAnswer.setAttribute('aria-label', 'Eigene Antwort zu: '+c.q);
+    }
+    function flip(){ cardEl.classList.toggle('flipped'); }
+    document.getElementById('revealBtn').addEventListener('click', ()=> flip());
+    cardEl.addEventListener('click', (e)=>{ if(e.target.closest('button, input, textarea')) return; flip(); });
+    function norm(s){ return s.toLowerCase().replace(/\s+/g,' ').trim(); }
+    checkBtn.addEventListener('click', ()=>{
+      const c = queue[idx]; if(!c) return;
+      const user = norm(selfAnswer.value);
+      const ans = norm(c.a);
+      if(!user){ checkMsg.innerHTML = "<span class='accent'>Hinweis:</span> Du hast nichts eingegeben. Antwort oben vergleichen."; return; }
+      const ok = ans.includes(user) || user.includes(ans);
+      checkMsg.innerHTML = ok ? "✓ Klingt richtig (Selbstcheck)." : "<span class='danger'>✕ Abweichung</span> – oben vergleichen.";
+    });
+    againBtn.addEventListener('click', ()=> grade(false));
+    okBtn.addEventListener('click', ()=> grade(true));
+    function grade(success){
+      const d=currentDeck(); if(!d) return;
+      const c = queue[idx]; if(!c) return;
+      const now = today();
+      const prev = c.box;
+      if(success){ c.box = Math.min(5, c.box+1); } else { c.box = 1; }
+      const map = {1:0, 2:1, 3:3, 4:7, 5:14};
+      c.next = now + days(map[c.box]);
+      c.history.push({t:Date.now(), ok:success, from:prev, to:c.box});
+      saveState();
+      idx = Math.min(queue.length-1, idx+1);
+      queue = buildQueue();
+      renderKPI();
+      showCard();
+    }
+    function renderKPI(){
+      const d=currentDeck(); if(!d){ setKPI(0,0,0,0,0); return; }
+      const total = d.cards.length;
+      const now=today();
+      const due = d.cards.filter(c=>c.next<=now).length;
+      const b1 = d.cards.filter(c=>c.box===1).length;
+      const b2 = d.cards.filter(c=>c.box===2).length;
+      const b3 = d.cards.filter(c=>c.box>=3).length;
+      setKPI(total,due,b1,b2,b3);
+    }
+    function setKPI(t,d,b1,b2,b3){
+      document.getElementById('kpiTotal').textContent=t;
+      document.getElementById('kpiDue').textContent=d;
+      document.getElementById('kpiB1').textContent=b1;
+      document.getElementById('kpiB2').textContent=b2;
+      document.getElementById('kpiB3').textContent=b3;
+    }
+    document.getElementById('editCardBtn').addEventListener('click', ()=>{
+      const c = queue[idx]; if(!c) return;
+      const q = prompt("Frage bearbeiten:", c.q);
+      if(q==null) return;
+      const a = prompt("Antwort bearbeiten:", c.a);
+      if(a==null) return;
+      c.q=q; c.a=a; saveState(); showCard();
+    });
+    addCardBtn.addEventListener('click', ()=>{
+      const q=qInput.value.trim(), a=aInput.value.trim();
+      if(!q || !a) return alert("Bitte Frage und Antwort ausfüllen.");
+      currentDeck().cards.push(mkCard(q,a));
+      saveState(); qInput.value=""; aInput.value="";
+      startSession();
+    });
+    clearInputsBtn.addEventListener('click', ()=>{ qInput.value=""; aInput.value=""; });
+    importBtn.addEventListener('click', async ()=>{
+      const file = importFile.files && importFile.files[0];
+      if(!file){ return alert("Bitte eine Datei wählen (.json, .csv, .txt, .md, .pdf)."); }
+      const ext = (file.name.split('.').pop()||"").toLowerCase();
+      try{
+        if(ext==='json'){
+          const obj = JSON.parse(await file.text());
+          await importJSON(obj, file);
+        }else if(ext==='csv'){
+          await importCSV(await file.text());
+        }else if(ext==='txt' || ext==='md'){
+          importFromPlain(await file.text());
+        }else if(ext==='pdf'){
+          await importFromPDF(file);
+        }else{
+          alert("Nicht unterstützte Datei.");
+        }
+      }catch(e){
+        console.error(e);
+        alert("Import-Fehler: "+e.message);
+      }finally{ importFile.value=""; }
+    });
+    async function importJSON(obj, file){
+      if(obj.cards){
+        const name = suggestDeckName(file.name.replace(/\.json$/,''));
+        const useNew = confirm("Als neues Deck „"+name+"“ importieren? (Abbrechen = Karten in aktuelles Deck hinzufügen)");
+        if(useNew){
+          const color = "#9b5de5";
+          state.decks[name] = {cards:[], created: Date.now(), color};
+          state.current = name;
+          obj.cards.forEach(c=> state.decks[name].cards.push(mkCard(c.q,c.a)));
+        }else{
+          obj.cards.forEach(c=> currentDeck().cards.push(mkCard(c.q,c.a)));
+        }
+      }else if(Array.isArray(obj)){
+        obj.forEach(it=> currentDeck().cards.push(mkCard(it.question||it.q, it.answer||it.a)));
+      }else{ alert("JSON-Format unbekannt."); }
+      saveState(); startSession();
+    }
+    async function importCSV(text){
+      const rows = text.split(/\r?\n/).filter(Boolean);
+      const [head, ...rest] = rows;
+      const cols = head.split(',').map(s=>s.trim().toLowerCase());
+      const qi = cols.indexOf('question'); const ai = cols.indexOf('answer');
+      if(qi<0 || ai<0) return alert("CSV braucht Spalten: question,answer");
+      rest.forEach(line=>{
+        const parts = parseCSV(line, cols.length);
+        const q = parts[qi]; const a = parts[ai];
+        if(q && a) currentDeck().cards.push(mkCard(q,a));
+      });
+      saveState(); startSession();
+    }
+    function importFromPlain(text){
+      let count=0;
+      const lines = text.split(/\r?\n/);
+      const bySep = lines.filter(l=>/::/.test(l));
+      if(bySep.length>=1){
+        bySep.forEach(line=>{
+          const [q,a] = line.split(/::/);
+          if(q && a){ currentDeck().cards.push(mkCard(q.trim(), a.trim())); count++; }
+        });
+      }else{
+        const blocks = text.split(/\n\s*\n/);
+        blocks.forEach(b=>{
+          const mq = b.match(/(?:^|\n)\s*(Frage|Question)\s*:\s*([\s\S]+)/i);
+          const ma = b.match(/(?:^|\n)\s*(Antwort|Answer)\s*:\s*([\s\S]+)/i);
+          if(mq && ma){
+            currentDeck().cards.push(mkCard(mq[2].trim(), ma[2].trim())); count++;
+          }
+        });
+      }
+      if(count===0) alert("Kein passendes Muster gefunden. Nutze „Frage::Antwort“ je Zeile.");
+      saveState(); startSession();
+    }
+    async function importFromPDF(file){
+      const arrayBuf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({data: arrayBuf}).promise;
+      let text="";
+      for(let p=1;p<=pdf.numPages;p++){
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const items = content.items.map(i=>i.str).join(" ");
+        text += items + "\n\n";
+      }
+      const deckName = suggestDeckName(file.name.replace(/\.pdf$/i,''));
+      const choice = confirm("PDF erkannt. Neues Deck „"+deckName+"“ anlegen? (Abbrechen = in aktuelles Deck importieren)");
+      if(choice){
+        const color = "#9b5de5";
+        state.decks[deckName] = {cards:[], created: Date.now(), color};
+        state.current = deckName;
+      }
+      const preview = prompt("PDF-Text extrahiert. Karten werden nach Muster „Frage::Antwort“ je Zeile erkannt.\n\nVorschau (bearbeitbar):", text.slice(0, 1200));
+      if(preview==null) return;
+      importFromPlain(preview);
+    }
+    function suggestDeckName(base){
+      let name = base.replace(/[_\-]+/g, ' ').replace(/\s+/g,' ').trim();
+      if(!name) name = "Deck "+(Object.keys(state.decks).length+1);
+      let n=name, i=2;
+      while(state.decks[n]){ n = name+" ("+i+")"; i++; }
+      return n;
+    }
+    function parseCSV(line, n){
+      const out=[]; let cur=""; let inq=false;
+      for(let i=0;i<line.length;i++){
+        const ch=line[i];
+        if(ch==='\"'){ if(inq && line[i+1]==='\"'){ cur+='\"'; i++; } else inq=!inq; }
+        else if(ch===',' && !inq){ out.push(cur); cur=""; }
+        else cur+=ch;
+      }
+      out.push(cur);
+      while(out.length<n) out.push("");
+      return out.map(s=>s.trim());
+    }
+    function download(data, filename, type){
+      const blob = new Blob([data], {type});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=> URL.revokeObjectURL(a.href), 1000);
+    }
+    function refreshAll(){ refreshDeckSelect(); refreshTOC(); refreshPalette(); startSession(); }
+    (function init(){ if(!state.current){ state.current = Object.keys(state.decks)[0]; saveState(); } refreshAll(); })();
+  </script>
+</body>
+</html>
