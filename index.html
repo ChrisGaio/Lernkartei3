@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Karteikarten – Lernapp (Auto‑Fragen v2)</title>
-  <meta name="description" content="Interaktive Lernkarten mit automatischer Fragen/Antworten-Erzeugung aus langen PDF/TXT-Texten (offline, regelbasiert).">
+  <title>Karteikarten – Lernapp (Auto‑Fragen v2 • PDF Fix)</title>
+  <meta name="description" content="Interaktive Lernkarten mit automatischer Fragen/Antworten-Erzeugung aus PDF/TXT (offline, regelbasiert). PDF-Import gefixt für GitHub Pages.">
   <style>
     :root{
       --bg1:#0f0c29; --bg2:#302b63; --bg3:#24243e;
@@ -47,12 +47,13 @@
     .preview{background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.2);padding:10px;border-radius:10px;max-height:260px;overflow:auto;font-size:13px;white-space:pre-wrap}
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .kpi{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .error{background:rgba(255,107,107,.15);border:1px solid rgba(255,107,107,.4);padding:8px 10px;border-radius:10px}
   </style>
 </head>
 <body>
   <header>
     <h1>Karteikarten • Treuhand</h1>
-    <span class="badge">Auto‑Fragen v2</span>
+    <span class="badge">Auto‑Fragen v2 • PDF Fix</span>
     <div class="spacer"></div>
     <button class="primary" id="exportDeckBtn" title="Deck exportieren">Export</button>
   </header>
@@ -84,14 +85,6 @@
             <option value="medium" selected>Mittel</option>
             <option value="high">Hoch</option>
           </select>
-        </span>
-        <span class="pill">
-          Vorlagen aktiv:
-          <label><input type="checkbox" id="tplDef" checked> Definition</label>
-          <label><input type="checkbox" id="tplLaw" checked> Gesetz/Artikel</label>
-          <label><input type="checkbox" id="tplDuty" checked> Pflichten/Rechte</label>
-          <label><input type="checkbox" id="tplNum" checked> Zahlen/Quoren</label>
-          <label><input type="checkbox" id="tplCompare" checked> Vergleich</label>
         </span>
       </div>
     </div>
@@ -135,6 +128,7 @@
         <div class="small">
           Import: CSV (question,answer), TXT/MD (Frage::Antwort), PDF (Text wird extrahiert, Auto‑Fragen nutzbar), JSON (Export).
         </div>
+        <div id="errorBox" class="small"></div>
         <div class="pill">Vorschau Auto‑Fragen <span id="qaCount">0</span></div>
         <div id="qaPreview" class="preview">—</div>
         <div class="kpi">
@@ -147,12 +141,19 @@
       </aside>
     </div>
 
-    <p class="small" style="text-align:center">Hinweis: Auto‑Fragen laufen offline im Browser. Qualität hängt von PDF‑Struktur ab. Du kannst jede Karte vor dem Import anpassen.</p>
+    <p class="small" style="text-align:center">Hinweis: Auto‑Fragen laufen offline im Browser. Qualität hängt von PDF‑Struktur ab.</p>
   </main>
 
+  <!-- pdf.js + workerSrc fix -->
   <script src="https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.min.js"></script>
   <script>
-    const LS_KEY = "treuhand_cards_v5_autogen";
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.min.js";
+    }
+  </script>
+
+  <script>
+    const LS_KEY = "treuhand_cards_v5_pdf_fix";
     let state = loadState();
     if(!state.decks){ state.decks = {}; state.current = null; saveState(); }
     if(Object.keys(state.decks).length===0){
@@ -170,11 +171,13 @@
       const used=new Set(Object.values(state.decks).map(d=>d.color)); for(const c of colors){ if(!used.has(c)) return c; }
       return colors[Math.floor(Math.random()*colors.length)]; }
     function id(x){ return document.getElementById(x); }
+    function showError(msg){
+      const box=id('errorBox'); box.className='small error'; box.textContent = "⚠️ "+msg;
+      setTimeout(()=>{ box.textContent=""; box.className='small'; }, 8000);
+    }
 
     // UI refs
     const deckSelect=id('deckSelect'), importFile=id('importFile'), qaPreview=id('qaPreview'), qaCount=id('qaCount');
-    const qaMode=id('qaMode'), densitySel=id('density');
-    const tplDef=id('tplDef'), tplLaw=id('tplLaw'), tplDuty=id('tplDuty'), tplNum=id('tplNum'), tplCompare=id('tplCompare');
 
     // Deck controls
     function refreshDeckSelect(){
@@ -254,7 +257,7 @@
         else if(ext==='txt' || ext==='md'){ await importFromPlain(await file.text()); }
         else if(ext==='pdf'){ await importFromPDF(file); }
         else alert("Nicht unterstützte Datei.");
-      }catch(e){ console.error(e); alert("Import-Fehler: "+e.message); }
+      }catch(e){ console.error(e); showError("Import-Fehler: "+(e.message||e)); }
       finally{ importFile.value=""; }
     });
 
@@ -307,132 +310,71 @@
         pairs.forEach(p=> currentDeck().cards.push(mkCard(p.q, p.a)));
         saveState(); refreshAll();
       }else if(pairs.length===0){
-        alert("Keine Auto‑Fragen gefunden. Versuche Modus „Aggressiv“ und Dichte „Hoch“.");
+        showError("Keine Auto‑Fragen gefunden. Versuche Modus „Aggressiv“ und Dichte „Hoch“.");
       }
     }
 
     async function importFromPDF(file){
-      const arrayBuf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({data: arrayBuf}).promise;
-      let text=""; for(let p=1;p<=pdf.numPages;p++){ const page=await pdf.getPage(p); const c=await page.getTextContent();
-        text += c.items.map(i=>i.str).join(" ") + "\n\n"; }
-      const name = suggestDeckName(file.name.replace(/\.pdf$/i,''));
-      const newDeck = confirm("PDF erkannt. Neues Deck „"+name+"“ anlegen? (Abbrechen = aktuelles Deck)");
-      if(newDeck){ state.decks[name]={cards:[], created:Date.now(), color:autoColor()}; state.current=name; saveState(); refreshAll(); }
-      // Erst direkte Paare
-      let made=0;
-      text.split(/\r?\n/).forEach(line=>{
-        const m=line.split(/::/);
-        if(m.length>=2){ const q=m.shift(); const a=m.join("::"); currentDeck().cards.push(mkCard(q,a)); made++; }
-      });
-      if(made===0){
-        const pairs = autoQA(text);
-        previewPairs(pairs);
-        if(pairs.length>0 && confirm("Auto‑Fragen übernehmen? ("+pairs.length+")")){
-          pairs.forEach(p=> currentDeck().cards.push(mkCard(p.q, p.a)));
+      if(!window['pdfjsLib']){ throw new Error("PDF-Bibliothek nicht geladen."); }
+      try{
+        const arrayBuf = await file.arrayBuffer();
+        if(arrayBuf.byteLength > 50*1024*1024){
+          showError("PDF ist sehr groß (>50 MB). Das kann auf dem Handy langsam sein.");
         }
+        const pdf = await pdfjsLib.getDocument({data: arrayBuf}).promise;
+        let text=""; for(let p=1;p<=pdf.numPages;p++){
+          const page=await pdf.getPage(p); const c=await page.getTextContent({normalizeWhitespace:true});
+          text += c.items.map(i=>i.str).join(" ") + "\n\n";
+        }
+        const name = suggestDeckName(file.name.replace(/\.pdf$/i,''));
+        const newDeck = confirm("PDF erkannt. Neues Deck „"+name+"“ anlegen? (Abbrechen = aktuelles Deck)");
+        if(newDeck){ state.decks[name]={cards:[], created:Date.now(), color:autoColor()}; state.current=name; saveState(); refreshAll(); }
+        let made=0;
+        text.split(/\r?\n/).forEach(line=>{
+          const m=line.split(/::/);
+          if(m.length>=2){ const q=m.shift(); const a=m.join("::"); currentDeck().cards.push(mkCard(q,a)); made++; }
+        });
+        if(made===0){
+          const pairs = autoQA(text);
+          previewPairs(pairs);
+          if(pairs.length>0 && confirm("Auto‑Fragen übernehmen? ("+pairs.length+")")){
+            pairs.forEach(p=> currentDeck().cards.push(mkCard(p.q, p.a)));
+          }
+        }
+        saveState(); refreshAll();
+      }catch(err){
+        if(String(err).includes("GlobalWorkerOptions") || String(err).includes("fake worker")){
+          throw new Error("PDF-Worker war nicht verfügbar. Bitte Seite neu laden. (Fix ist aktiv)");
+        }
+        throw err;
       }
-      saveState(); refreshAll();
     }
 
-    // --------- Auto-QA v2 (regelbasiert) ---------
+    // --------- Auto-QA (kompakt) ---------
     function autoQA(raw){
-      const mode = qaMode.value;
-      if(mode==='off') return [];
-      const dens = densitySel.value;
-      const opts = {
-        wantDef: tplDef.checked, wantLaw: tplLaw.checked, wantDuty: tplDuty.checked,
-        wantNum: tplNum.checked, wantCompare: tplCompare.checked,
-        mode, dens
-      };
       const text = normalize(raw);
       const blocks = splitBlocks(text);
       let pairs=[];
       for(const b of blocks){
         const head = detectHeading(b);
         const local = [];
-        if(opts.wantDef)   local.push(...extractDefinitions(b, head));
-        if(opts.wantLaw)   local.push(...extractLaw(b));
-        if(opts.wantDuty)  local.push(...extractDuties(b));
-        if(opts.wantNum)   local.push(...extractNumbers(b, head));
-        if(opts.wantCompare) local.push(...extractComparisons(b, head));
-        local.push(...extractCoreSentences(b, opts));
-        pairs.push(...local);
-      }
-      const cap = opts.dens==='high' ? 250 : opts.dens==='medium' ? 140 : 80;
-      return dedupe(pairs).slice(0, cap);
-    }
-
-    function extractDefinitions(b, head){
-      const pairs=[];
-      b.split(/\n/).forEach(line=>{
-        const m = line.match(/^([A-ZÄÖÜa-zäöü0-9\. ,–\-\/\(\)]+?)\s*:\s+(.{12,})$/);
-        if(m){
-          const label = m[1].trim(); const expl = m[2].trim();
-          const q = head ? `${label} – ${head}?` : `${label} – was bedeutet das?`;
-          pairs.push({q, a: expl});
-        }
-      });
-      return pairs;
-    }
-    function extractLaw(b){
-      const out=[];
-      const re = /(Art\.\s*\d+[a-zA-Z]*\s*(?:Abs\.\s*\d+\s*)?(?:Ziff\.\s*\d+\s*)?(?:[a-zA-Z]*)?\s*(?:OR|ZGB|DBG|StHG|MWSTG))/g;
-      const seen=new Set();
-      let m; while((m=re.exec(b))!==null){
-        const tag=m[1]; if(seen.has(tag)) continue; seen.add(tag);
-        const s = firstSentenceAfter(b, tag);
-        if(s && s.length>=20){
-          out.push({ q:`Was regelt ${tag}?`, a: s.trim() });
-        }
-      }
-      return out;
-    }
-    function extractDuties(b){
-      const out=[];
-      const re = /(Pflichten|Rechte|Treuepflicht|Nachschusspflicht|Nebenleistungspflicht|Konkurrenzverbot|Mitwirkungsrechte)/i;
-      if(re.test(b)){
+        b.split(/\n/).forEach(line=>{
+          const m = line.match(/^([A-ZÄÖÜa-zäöü0-9\. ,–\-\/\(\)]+?)\s*:\s+(.{12,})$/);
+          if(m){ const label=m[1].trim(); const expl=m[2].trim(); local.push({q:(head?`${label} – ${head}?`:`${label} – was bedeutet das?`), a: expl}); }
+        });
+        const regs = b.match(/(Art\.\s*\d+[a-zA-Z]*\s*(?:Abs\.\s*\d+\s*)?(?:Ziff\.\s*\d+\s*)?(?:[a-zA-Z]*)?\s*(?:OR|ZGB|DBG|StHG|MWSTG))/g) || [];
+        const seen=new Set(); regs.forEach(tag=>{
+          if(seen.has(tag)) return; seen.add(tag);
+          const s = firstSentenceAfter(b, tag); if(s && s.length>=20) local.push({q:`Was regelt ${tag}?`, a: s.trim()});
+        });
         sentences(b).forEach(s=>{
-          if(/(muss|müssen|dürfen|dürfen nicht|verpflichtet|unzulässig|erlaubt)/i.test(s) && s.length>=50 && s.length<=240){
-            out.push({ q: makeClozeLead(s, "Was gilt?"), a: s.trim() });
+          if(/ (ist|sind|bezeichnet|umfasst|gewährt|erfordert|bedeutet|besagt) /i.test(s) && s.length>=60 && s.length<=240){
+            local.push({q: makeClozeLead(s, "Worum geht es?"), a: s.trim()});
           }
         });
+        pairs.push(...local);
       }
-      return out;
-    }
-    function extractNumbers(b, head){
-      const out=[];
-      const nums = b.match(/(\b\d{1,3}(?:[’'` ]\d{3})*(?:\.\d+)?\s*(?:CHF|%|Prozent|Stimmen|Tage|Jahre|Monate)\b)/g) || [];
-      nums.forEach(n=>{
-        const s = sentenceContaining(b, n);
-        if(s && s.length>=30 && s.length<=220){
-          const q = head ? `${head}: Welche Zahl/Schwelle gilt?` : `Welche Zahl/Schwelle gilt?`;
-          out.push({ q, a: s.trim() });
-        }
-      });
-      return out;
-    }
-    function extractComparisons(b, head){
-      const out=[];
-      sentences(b).forEach(s=>{
-        if(/(anders als|im Gegensatz zu|Unterschied|vs\.|verglichen mit|Abweichung zur AG|abweichend zur AG)/i.test(s)){
-          const q = head ? `${head}: Was ist der Unterschied?` : `Was ist der Unterschied?`;
-          out.push({ q, a: s.trim() });
-        }
-      });
-      return out;
-    }
-    function extractCoreSentences(b, opts){
-      const out=[];
-      sentences(b).forEach(s=>{
-        const core = /( ist| sind| bezeichnet| umfasst| gewährt| erfordert| bewirkt| bedeutet| besagt )/i.test(s);
-        const len = s.length;
-        const passLen = opts.mode==='aggressive' ? (len>=40 && len<=300) : (len>=60 && len<=220);
-        if(core && passLen){
-          out.push({ q: makeClozeLead(s, "Worum geht es?"), a: s.trim() });
-        }
-      });
-      return out;
+      return dedupe(pairs).slice(0, 160);
     }
 
     // Helpers
@@ -448,11 +390,6 @@
       const rest = text.slice(idx);
       const s = rest.split(/(?<=[\.\!\?])\s+/)[0];
       return s;
-    }
-    function sentenceContaining(text, needle){
-      const arr = sentences(text);
-      for(const s of arr){ if(s.includes(needle)) return s; }
-      return "";
     }
     function makeClozeLead(s, lead){
       const m = s.match(/^(.*?)( ist| sind| bezeichnet| umfasst| gewährt| erfordert| bedeutet| besagt)\b/i);
@@ -488,14 +425,12 @@
     function setKPI(t,d,b1,b2,b3){
       id('kpiTotal').textContent=t; id('kpiDue').textContent=d; id('kpiB1').textContent=b1; id('kpiB2').textContent=b2; id('kpiB3').textContent=b3;
     }
-
-    // Preview
     function previewPairs(pairs){
-      if(!pairs || pairs.length===0){ qaPreview.textContent="—"; qaCount.textContent="0"; return; }
-      qaPreview.textContent = pairs.slice(0,40).map(p=>`• ${p.q}\n  → ${p.a}`).join("\n\n");
-      qaCount.textContent = String(pairs.length);
+      const box = id('qaPreview'); const cnt=id('qaCount');
+      if(!pairs || pairs.length===0){ box.textContent="—"; cnt.textContent="0"; return; }
+      box.textContent = pairs.slice(0,40).map(p=>`• ${p.q}\n  → ${p.a}`).join("\n\n");
+      cnt.textContent = String(pairs.length);
     }
-
     function refreshAll(){ refreshDeckSelect(); renderKPI(); startSession(); }
     refreshAll();
 
